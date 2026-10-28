@@ -1,4 +1,5 @@
 {
+  "tasksRoot": "C:/Users/me/source/my-tasks",
   "projects": {
     "myapp": {
       "name": "My App",

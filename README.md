@@ -1,4 +1,15 @@
-# ordna-herdr-bridge
+# Ordna herdr bridge
+
+![GitHub Repo stars](https://img.shields.io/github/stars/spinellifabio/ordna-herdr-bridge)
+![Last Commit](https://img.shields.io/github/last-commit/spinellifabio/ordna-herdr-bridge)
+![Issues](https://img.shields.io/github/issues/spinellifabio/ordna-herdr-bridge)
+
+<!-- Stack -->
+![Node](https://img.shields.io/badge/runtime-Node.js-339933.svg)
+![Windows](https://img.shields.io/badge/OS-Windows-blue.svg)
+![PowerShell](https://img.shields.io/badge/shell-PowerShell-5391FE.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![version](https://img.shields.io/badge/version-0.1.0--pre--release-orange)
 
 A central, Git-versioned task board for many projects, with a small bridge that hands any task to [Claude Code](https://claude.com/claude-code) running inside [Herdr](https://herdr.dev).
 
@@ -6,7 +17,7 @@ A central, Git-versioned task board for many projects, with a small bridge that 
 - **Herdr** keeps the sessions: one workspace and one named agent per task, persistent and resumable.
 - **`ordna-herdr`** (this repo, ~400 lines of dependency-free Node) glues them together: pick a task in the Ordna TUI, press `g`, and Claude Code starts working on it in an isolated Git worktree of the right project.
 
-Tasks live in this repository, **separate from your code repositories**. Adding a project is one line of config, no code changes.
+Tasks live in their **own Git repository**, separate from both your code repositories and this bridge, so you can publish the bridge while keeping your task content private. Adding a project is one line of config, no code changes.
 
 > **Status:** works end to end on Windows 11 (PowerShell 7), including repositories inside WSL. See [Tested](#tested-and-not-tested) for exactly what has and has not been verified.
 
@@ -58,15 +69,27 @@ The bridge imports `ordna-core` from the global npm install of the Ordna CLI (`%
 git clone git@github.com:spinellifabio/ordna-herdr-bridge.git
 cd ordna-herdr-bridge
 
-# 1. Ordna config is already in .ordna/config.yaml (storage: file + the status set below).
-# 2. Create your local project registry (not versioned):
-Copy-Item projects.json.example projects.json    # then edit, or just use `project add`
+# 1. Create the task repository (a separate repo; keep it private if tasks are sensitive)
+mkdir ..\my-tasks; cd ..\my-tasks; git init -b main
+ordna init                          # then set the statuses below in .ordna/config.yaml
+cd ..\ordna-herdr-bridge
+
+# 2. Create your local project registry (not versioned) and point it at the task repo:
+Copy-Item projects.json.example projects.json    # set "tasksRoot", then edit projects or use `project add`
 
 # 3. Optional alias
 Set-Alias oh "$PWD\ordna-herdr.ps1"
 ```
 
-Statuses (`.ordna/config.yaml`): `todo → in-progress → blocked → review → done`. The last one is Ordna's terminal status, so Ordna refuses `done` while a `depends_on` task is not done.
+Statuses to set in the task repo's `.ordna/config.yaml` (keep `storage: file`):
+
+```yaml
+statuses: [todo, in-progress, blocked, review, done]
+```
+
+Flow: `todo → in-progress → blocked → review → done`. The last one is Ordna's terminal status, so Ordna refuses `done` while a `depends_on` task is not done.
+
+**Task repository location.** Resolved in this order: env `ORDNA_TASKS_ROOT`, then `"tasksRoot"` in `projects.json`, then this repository (single-repo mode; `tasks/*.md` are git-ignored here so tasks are never published by accident). Plain `ordna …` commands (list, move, assign, commit, web) must be run **inside the task repository**; `ordna-herdr` works from anywhere.
 
 ## Quick start
 
@@ -78,7 +101,7 @@ oh project add myapp C:/src/myapp --name "My App"
 cd C:\src\myapp
 oh create "Add retry to the HTTP client" -p high
 
-# Fill in Goal / Acceptance Criteria (tasks/T-001.md, or `e` in the TUI), then hand it over:
+# Fill in Goal / Acceptance Criteria (tasks/T-001.md in the task repo, or `e` in the TUI), then hand it over:
 oh board            # select the task, press g
 # or without the TUI:
 oh start T-001
@@ -90,7 +113,7 @@ oh show T-001       # same, and focuses the agent's Herdr session
 When Claude finishes and verifies the work it runs `report T-001 review --note "..."`. You review branch `ordna/T-001`, integrate it yourself, then:
 
 ```powershell
-ordna move T-001 done      # from inside ordna-herdr-bridge
+ordna move T-001 done      # from inside the task repository
 ordna commit -m "tasks: T-001 done"
 ```
 
@@ -112,7 +135,7 @@ Run as `ordna-herdr.ps1 <command>` (or `node bin/ordna-herdr.mjs <command>`). Al
 | `project add <id> <path> [options]` / `project list` | Manage the registry. `add` validates that the path is a Git repo. |
 | `gc` | Removes orphaned `*.worktrees/<id>` entries from Git's global `safe.directory` (WSL only, see below). |
 
-Plain `ordna …` commands (list, show, move, assign, commit, web) keep working **inside `ordna-herdr-bridge`**; they operate on the current directory only.
+Plain `ordna …` commands (list, show, move, assign, commit, web) keep working **inside the task repository**; they operate on the current directory only.
 
 ## Task lifecycle
 
@@ -174,7 +197,7 @@ To make other Claude Code sessions aware of the central board, add a short note 
 
 ```md
 ## Central tasks (Ordna)
-Tasks live in <path-to>/ordna-herdr-bridge, not in the current repo. Create with
+Tasks live in <path-to>/my-tasks (a separate repo), not in the current repo. Create with
 `<path-to>/ordna-herdr.ps1 create "Title" [-p high] [-t tag]` (project inferred from cwd, `-P <id>` elsewhere).
 Never move a task to `done`, push or merge without an explicit request.
 ```
@@ -250,12 +273,39 @@ Not verified:
 bin/ordna-herdr.mjs       the bridge
 ordna-herdr.ps1           PowerShell shim
 projects.json.example     registry template (projects.json is local, git-ignored)
-.ordna/config.yaml        Ordna config (storage + statuses)
-tasks/                    one Markdown file per task
+.ordna/config.yaml        Ordna config for single-repo mode (the task repo has its own)
+tasks/                    single-repo mode only; *.md are git-ignored here
 ```
 
-`ordna init` also generates an `AGENTS.md` guide; it is git-ignored here.
+The task repository (`tasksRoot`) is a separate repo with `.ordna/config.yaml` and `tasks/T-xxx.md`. `ordna init` also generates an `AGENTS.md` guide; it is git-ignored here.
+
+## Keywords
+
+ordna, herdr, claude-code, task-management, kanban, markdown, git-worktree, ai-agents, automation, powershell, wsl
+
+## Resources / Documentation
+
+- [Ordna](https://ordna.sh/) – Git-native project management with tasks as Markdown files
+- [Ordna on GitHub](https://github.com/FreHilm/ordna) – source of the CLI, TUI and `ordna-core`
+- [Herdr](https://herdr.dev) – terminal workspace manager for AI coding agents
+- [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview) – the agent this bridge drives
+- [git worktree](https://git-scm.com/docs/git-worktree) – the isolation mechanism used for every run
+- [git safe.directory](https://git-scm.com/docs/git-config#Documentation/git-config.txt-safedirectory) – why WSL repositories need explicit trust
 
 ## License
 
 [MIT](LICENSE)
+
+## Credits
+
+```text
+ ______   ______    ______   ___   __    ________       ___   ___   ______   ______    ______   ______       
+/_____/\ /_____/\  /_____/\ /__/\ /__/\ /_______/\     /__/\ /__/\ /_____/\ /_____/\  /_____/\ /_____/\      
+\:::_ \ \\:::_ \ \ \:::_ \ \\::\_\\  \ \\::: _  \ \    \::\ \\  \ \\::::_\/_\:::_ \ \ \:::_ \ \\:::_ \ \     
+ \:\ \ \ \\:(_) ) )_\:\ \ \ \\:. `-\  \ \\::(_)  \ \    \::\/_\ .\ \\:\/___/\\:(_) ) )_\:\ \ \ \\:(_) ) )_   
+  \:\ \ \ \\: __ `\ \\:\ \ \ \\:. _    \ \\:: __  \ \    \:: ___::\ \\::___\/_\: __ `\ \\:\ \ \ \\: __ `\ \  
+   \:\_\ \ \\ \ `\ \ \\:\/.:| |\. \`-\  \ \\:.\ \  \ \    \: \ \\::\ \\:\____/\\ \ `\ \ \\:\/.:| |\ \ `\ \ \ 
+    \_____\/ \_\/ \_\/ \____/_/ \__\/ \__\/ \__\/\__\/     \__\/ \::\/ \_____\/ \_\/ \_\/ \____/_/ \_\/ \_\/ 
+                                                                                                             
+                                                v0.1.0 (pre-release) - Code assembled in spare time by Fabio
+```

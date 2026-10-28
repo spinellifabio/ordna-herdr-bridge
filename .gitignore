@@ -5,3 +5,5 @@ node_modules/
 /.ordna/run/
 /projects.json
 /AGENTS.md
+/tasks/*
+!/tasks/.gitkeep

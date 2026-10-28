@@ -13,8 +13,10 @@ const REGISTRY = join(ROOT, "projects.json");
 const LOCKS = join(ROOT, ".ordna", "run");
 const CORE = process.env.ORDNA_CORE ||
   join(process.env.APPDATA ?? "", "npm/node_modules/@frehilm/ordna-cli/node_modules/@frehilm/ordna-core/dist/index.js");
+// Task repository: env ORDNA_TASKS_ROOT, else "tasksRoot" in projects.json, else this repo (single-repo mode).
+const TASKS_ROOT = resolve(process.env.ORDNA_TASKS_ROOT || (existsSync(REGISTRY) && JSON.parse(readFileSync(REGISTRY, "utf8")).tasksRoot) || ROOT);
 const core = await import(pathToFileURL(CORE).href);
-const ctx = core.createContext(ROOT);
+const ctx = core.createContext(TASKS_ROOT);
 const STATES = { review: "review", blocked: "blocked", "in-progress": "in-progress" };
 
 // ---------- helpers ----------
@@ -371,8 +373,8 @@ async function cmdBoard() {
   // ordna-cli/dist/bin/ordna.js, found from ordna-core/dist: no shell (avoids the deprecation warning).
   const bin = resolve(dirname(CORE), "../../../../dist/bin/ordna.js");
   const child = existsSync(bin)
-    ? spawn(process.execPath, [bin, "board"], { cwd: ROOT, env, stdio: "inherit" })
-    : spawn("ordna", ["board"], { cwd: ROOT, env, stdio: "inherit", shell: true });
+    ? spawn(process.execPath, [bin, "board"], { cwd: TASKS_ROOT, env, stdio: "inherit" })
+    : spawn("ordna", ["board"], { cwd: TASKS_ROOT, env, stdio: "inherit", shell: true });
   child.on("exit", (c) => { server.close(); process.exit(c ?? 0); });
 }
 
@@ -392,6 +394,8 @@ const HELP = `ordna-herdr <command>
 
 const [cmd, ...rest] = process.argv.slice(2);
 try {
+  if (cmd && cmd !== "project" && cmd !== "gc" && !existsSync(join(TASKS_ROOT, ".ordna", "config.yaml")))
+    fail(`task repository not found at ${TASKS_ROOT} (no .ordna/config.yaml): run 'ordna init' there and set "tasksRoot" in projects.json`);
   const arg = () => rest[0] ?? fail(`usage: ordna-herdr ${cmd} <id>`);
   switch (cmd) {
     case "board": await cmdBoard(); break;
