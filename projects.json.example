@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "myapp": {
+      "name": "My App",
+      "path": "C:/Users/me/source/repos/myapp",
+      "agent": "claude",
+      "isolation": "worktree",
+      "baseRef": "main",
+      "instructions": "Text appended to the prompt of every task of this project.",
+      "agentArgs": [],
+      "trustRepository": false
+    },
+    "myapp-wsl": {
+      "name": "Repository inside WSL",
+      "path": "//wsl.localhost/Ubuntu/home/me/myapp",
+      "agent": "claude",
+      "isolation": "worktree",
+      "trustWorktrees": true
+    }
+  }
+}

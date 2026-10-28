@@ -1,0 +1,7 @@
+# CocoIndex Code (ccc)
+/.cocoindex_code/
+node_modules/
+.worktrees/
+/.ordna/run/
+/projects.json
+/AGENTS.md
