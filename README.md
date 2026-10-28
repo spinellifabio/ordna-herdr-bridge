@@ -77,9 +77,11 @@ cd ..\ordna-herdr-bridge
 # 2. Create your local project registry (not versioned) and point it at the task repo:
 Copy-Item projects.json.example projects.json    # set "tasksRoot", then edit projects or use `project add`
 
-# 3. Optional alias
-Set-Alias oh "$PWD\ordna-herdr.ps1"
+# 3. Optional shortcut `ordh` (put it in your $PROFILE to keep it; note that `oh` is a built-in alias of Out-Host)
+function ordh { & "$PWD\ordna-herdr.ps1" @args }
 ```
+
+The examples below use `ordh`; without the shortcut, run `.\ordna-herdr.ps1 <command>` or `node bin/ordna-herdr.mjs <command>`.
 
 Statuses to set in the task repo's `.ordna/config.yaml` (keep `storage: file`):
 
@@ -95,19 +97,19 @@ Flow: `todo → in-progress → blocked → review → done`. The last one is Or
 
 ```powershell
 # Register a project (must be a Git repository)
-oh project add myapp C:/src/myapp --name "My App"
+ordh project add myapp C:/src/myapp --name "My App"
 
 # Create a task. Inside a registered repo the project tag is inferred from the directory:
 cd C:\src\myapp
-oh create "Add retry to the HTTP client" -p high
+ordh create "Add retry to the HTTP client" -p high
 
 # Fill in Goal / Acceptance Criteria (tasks/T-001.md in the task repo, or `e` in the TUI), then hand it over:
-oh board            # select the task, press g
+ordh board            # select the task, press g
 # or without the TUI:
-oh start T-001
+ordh start T-001
 
-oh status           # Ordna state + live Herdr state
-oh show T-001       # same, and focuses the agent's Herdr session
+ordh status           # Ordna state + live Herdr state
+ordh show T-001       # same, and focuses the agent's Herdr session
 ```
 
 When Claude finishes and verifies the work it runs `report T-001 review --note "..."`. You review branch `ordna/T-001`, integrate it yourself, then:
@@ -204,10 +206,10 @@ Never move a task to `done`, push or merge without an explicit request.
 
 ## Repositories inside WSL
 
-Register them with the UNC path (`oh project add app //wsl.localhost/Ubuntu/home/me/app`). From a WSL shell, call the Windows shim:
+Register them with the UNC path (`ordh project add app //wsl.localhost/Ubuntu/home/me/app`). From a WSL shell, call the Windows shim:
 
 ```bash
-oh() { powershell.exe -NoProfile -File 'C:\path\to\ordna-herdr-bridge\ordna-herdr.ps1' "$@"; }
+ordh() { powershell.exe -NoProfile -File 'C:\path\to\ordna-herdr-bridge\ordna-herdr.ps1' "$@"; }
 ```
 
 What differs from a Windows repo:
