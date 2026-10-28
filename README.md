@@ -12,24 +12,25 @@ Tasks live in this repository, **separate from your code repositories**. Adding 
 
 ## How it works
 
-```
-Ordna TUI ──(g)──▶ local HTTP listener ──┐   127.0.0.1, random port + token,
-                                         │   alive only while the board is open
-CLI: ordna-herdr start/resume/... ───────┤
-                                         ▼
-                              bin/ordna-herdr.mjs
-                 ┌───────────────┼──────────────────┐
-                 ▼               ▼                  ▼
-          ordna-core API     herdr CLI             git
-       tasks/T-001.md     worktree / workspace   repo checks,
-       (status, metadata,  agent start / prompt   commit lookup
-        Progress log)      read / focus / wait
-                                  │
-                                  ▼
-                       Claude Code in the worktree
-                                  │  node bin/ordna-herdr.mjs report T-001 review
-                                  ▼
-                          task moves to `review`
+```mermaid
+flowchart TD
+    TUI["<b>Ordna TUI</b><br/>press g on a task"]
+    CLI["<b>CLI</b><br/>ordna-herdr start / resume / stop / sync"]
+    HOOK["<b>Local HTTP listener</b><br/>127.0.0.1, random port + token<br/>alive only while the board is open"]
+    BRIDGE["<b>bin/ordna-herdr.mjs</b>"]
+    ORDNA["<b>ordna-core API</b><br/>tasks/T-001.md<br/>status, run metadata, Progress log"]
+    HERDR["<b>herdr CLI</b><br/>worktree / workspace<br/>agent start, prompt, read, focus"]
+    GIT["<b>git</b><br/>repo checks, commit lookup"]
+    CLAUDE["<b>Claude Code</b><br/>in an isolated worktree<br/>branch ordna/T-001"]
+
+    TUI -->|"agent hook (POST)"| HOOK
+    HOOK --> BRIDGE
+    CLI --> BRIDGE
+    BRIDGE --> ORDNA
+    BRIDGE --> HERDR
+    BRIDGE --> GIT
+    HERDR --> CLAUDE
+    CLAUDE -->|"report T-001 review"| BRIDGE
 ```
 
 Design rules:
