@@ -135,6 +135,8 @@ function cmdGc() {
   console.log(n ? `${n} entries removed` : "no orphaned entries");
 }
 
+const dirtyMsg =(p) => `${p.path} has uncommitted changes and this task runs in the repo itself (${p.inplace ? "tag 'inplace'" : "project isolation=none"}), so it cannot start. Commit/stash the changes, or ${p.inplace ? "remove the 'inplace' tag" : "set the project isolation to worktree"} to use a separate worktree.`;
+
 // Opens the workspace/pane for a run. Returns { workspace, pane, path, branch }.
 function openWorkspace(p, t, { reopenPath } = {}) {
   const label = `${t.id} ${p.name}`;
@@ -144,7 +146,7 @@ function openWorkspace(p, t, { reopenPath } = {}) {
     let path = reopenPath, branch = `${p.branchPrefix ?? "ordna/"}${t.id}`;
     if (!path && p.isolation !== "worktree") { // in-place: work in the repo itself, same clean-tree rule as below
       if (git(p.path, "status", "--porcelain").stdout.trim())
-        fail(`repository ${p.path} has local changes: isolation=none refused (use worktree or clean it up)`);
+        fail(dirtyMsg(p));
       path = p.path;
       branch = git(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() || branch;
     } else if (!path) {
@@ -168,7 +170,7 @@ function openWorkspace(p, t, { reopenPath } = {}) {
     return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
   }
   if (!reopenPath && git(p.path, "status", "--porcelain").stdout.trim())
-    fail(`repository ${p.path} has local changes: isolation=none refused (use worktree or clean it up)`);
+    fail(dirtyMsg(p));
   const r = herdr("workspace", "create", "--cwd", p.path, "--label", label, "--no-focus");
   return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: p.path, branch: git(p.path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() };
 }
@@ -188,7 +190,7 @@ async function startAgent(name, p, pane, claudeArgs) {
 async function cmdStart(id, { plan } = {}) {
   const t = await loadTask(id);
   plan ??= (t.tags ?? []).includes(PLAN_TAG);
-  const p = (t.tags ?? []).includes(INPLACE_TAG) ? { ...taskProject(t), isolation: "none" } : taskProject(t);
+  const p = (t.tags ?? []).includes(INPLACE_TAG) ? { ...taskProject(t), isolation: "none", inplace: true } : taskProject(t);
   if (!isRepo(p.path)) fail(`repository missing or not a git repo: ${p.path}`);
   const name = agentName(id);
   if (agentOf(name)) fail(`task ${id}: agent '${name}' is already running (use 'show' or 'resume')`);
