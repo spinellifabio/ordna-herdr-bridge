@@ -94,6 +94,7 @@ const PROMPT_MARKER = "has been assigned to you";
 // Plan mode: tag 'plan' on the task (editable in the Ordna UI) or --plan/--normal on 'start'. Stored as mode in the task frontmatter.
 const PLAN_TAG = "plan";
 const PLAN_ARGS = ["--permission-mode", "plan"];
+const INPLACE_TAG = "inplace"; // task runs directly in the repo: no worktree, no ordna/T-xxx branch
 function buildPrompt(t, p, root) {
   const cli = `node "${join(ROOT, "bin", "ordna-herdr.mjs")}"`;
   // Task content only: no frontmatter, no Progress log.
@@ -152,17 +153,17 @@ function openWorkspace(p, t, { reopenPath } = {}) {
     const r = herdr("workspace", "create", "--cwd", path, "--label", label, "--no-focus");
     return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path, branch };
   }
-  if (reopenPath) {
+  if (reopenPath && reopenPath !== p.path) { // reopenPath === p.path: in-place run, plain workspace below
     // With Herdr layouts the root pane of a reopened workspace may not be a shell: split a new one.
     const r = herdr("worktree", "open", "--cwd", p.path, "--path", reopenPath, "--label", label, "--no-focus", ...trust);
     const sh = herdr("pane", "split", r.root_pane.pane_id, "--direction", "down", "--cwd", reopenPath, "--no-focus");
     return { workspace: r.workspace.workspace_id, pane: sh.pane.pane_id, path: reopenPath, branch: r.worktree?.branch };
   }
-  if (p.isolation === "worktree") {
+  if (p.isolation === "worktree" && !reopenPath) {
     const r = herdr("worktree", "create", "--cwd", p.path, "--branch", `ordna/${t.id}`, "--base", p.baseRef ?? "HEAD", "--label", label, "--no-focus", ...trust);
     return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
   }
-  if (git(p.path, "status", "--porcelain").stdout.trim())
+  if (!reopenPath && git(p.path, "status", "--porcelain").stdout.trim())
     fail(`repository ${p.path} has local changes: isolation=none refused (use worktree or clean it up)`);
   const r = herdr("workspace", "create", "--cwd", p.path, "--label", label, "--no-focus");
   return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: p.path, branch: git(p.path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() };
@@ -183,7 +184,7 @@ async function startAgent(name, p, pane, claudeArgs) {
 async function cmdStart(id, { plan } = {}) {
   const t = await loadTask(id);
   plan ??= (t.tags ?? []).includes(PLAN_TAG);
-  const p = taskProject(t);
+  const p = (t.tags ?? []).includes(INPLACE_TAG) ? { ...taskProject(t), isolation: "none" } : taskProject(t);
   if (!isRepo(p.path)) fail(`repository missing or not a git repo: ${p.path}`);
   const name = agentName(id);
   if (agentOf(name)) fail(`task ${id}: agent '${name}' is already running (use 'show' or 'resume')`);
@@ -386,7 +387,7 @@ async function cmdBoard() {
 const HELP = `ordna-herdr <command>
   board                         Ordna TUI; 'g' on a task hands it to Claude through Herdr
   create <title...> [-P project] [-p prio] [-t tag...]   create a task in the central repo (project from the current directory)
-  start <id> [--plan|--normal]  start the task (Claude plan mode if the task has tag 'plan', or with --plan)
+  start <id> [--plan|--normal]  start the task (Claude plan mode if the task has tag 'plan', or with --plan; tag 'inplace' = no worktree, run in the repo)
   show <id>                     status + focus the Herdr session
   status [id]                   run status
   resume <id>                   resume an interrupted task
