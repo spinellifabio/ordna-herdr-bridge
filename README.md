@@ -127,7 +127,7 @@ Run as `ordna-herdr.ps1 <command>` (or `node bin/ordna-herdr.mjs <command>`). Al
 |---|---|
 | `board` | Opens the Ordna TUI with the agent hook wired to a local listener. **`g`** on a task = `start`. |
 | `create <title…> [-P project] [-p high\|medium\|low] [-t tag…]` | Creates a task in the central repo. Project defaults to the registered repo containing the current directory (subfolders and worktrees included). |
-| `start <id> [--plan\|--normal]` | Creates the worktree, opens a Herdr workspace, starts agent `ordna-<id>`, sends the task. Refuses if the agent already exists. Starts Claude in plan mode (`--permission-mode plan`) if the task has the tag `plan` or with `--plan`; `--normal` overrides the tag. `resume` keeps the mode. Tag `inplace` skips the worktree: the agent works directly in the repo on its current branch (refused if the repo has local changes; not supported for WSL repos). |
+| `start <id> [--plan\|--normal]` | Creates the worktree, opens a Herdr workspace, starts agent `ordna-<id>`, sends the task. Refuses if the agent already exists. Starts Claude in plan mode (`--permission-mode plan`) if the task has the tag `plan` or with `--plan`; `--normal` overrides the tag. `resume` keeps the mode. Tag `inplace` skips the worktree: the agent works directly in the repo on its current branch (refused if the repo has local changes; works for WSL repos too). |
 | `resume <id>` | Live agent: focuses it (or delivers a still-pending prompt). Dead agent: reopens the worktree and runs `claude --resume <session>`. |
 | `stop <id>` | Sends Esc to the agent; task becomes `blocked`. Does not close panes or delete anything. |
 | `status [id]` | Task status plus the live Herdr agent state, branch, commit, PR, last result. |
@@ -224,7 +224,7 @@ What differs from a Windows repo:
   - `"trustWorktrees": true` on the project: the bridge adds **only the exact worktree path it just created** to your global `safe.directory`. It never touches other entries.
   - Without the flag, it prints the `git config --global --add safe.directory …` command for you to run.
   - `ordna-herdr gc` removes entries for worktrees that no longer exist (only entries ending in `.worktrees/<id>`).
-- Only `isolation: worktree` is supported for WSL repositories.
+- `isolation: none` (and the `inplace` tag) also works: no worktree, the workspace opens on the repo itself, refused if the repo has local changes.
 
 ## Safety
 

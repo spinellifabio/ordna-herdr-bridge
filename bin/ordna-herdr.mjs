@@ -142,8 +142,12 @@ function openWorkspace(p, t, { reopenPath } = {}) {
   const w = wslOf(p.path);
   if (w) { // WSL repo: Herdr would use git.exe (rejected). Create the worktree with WSL git, Herdr only opens the workspace.
     let path = reopenPath, branch = `${p.branchPrefix ?? "ordna/"}${t.id}`;
-    if (!path) {
-      if (p.isolation !== "worktree") fail("WSL repos support only isolation=worktree");
+    if (!path && p.isolation !== "worktree") { // in-place: work in the repo itself, same clean-tree rule as below
+      if (git(p.path, "status", "--porcelain").stdout.trim())
+        fail(`repository ${p.path} has local changes: isolation=none refused (use worktree or clean it up)`);
+      path = p.path;
+      branch = git(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() || branch;
+    } else if (!path) {
       const wt = `${w.linux.replace(/\/$/, "")}.worktrees/${t.id}`; // next to the repo, outside its tree
       const r = git(p.path, "worktree", "add", "-b", branch, wt, p.baseRef ?? "HEAD");
       if (r.status !== 0) fail(`git worktree add (WSL): ${(r.stderr || r.stdout).trim()}`);
