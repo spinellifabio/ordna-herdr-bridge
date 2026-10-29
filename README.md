@@ -127,7 +127,7 @@ Run as `ordna-herdr.ps1 <command>` (or `node bin/ordna-herdr.mjs <command>`). Al
 |---|---|
 | `board` | Opens the Ordna TUI with the agent hook wired to a local listener. **`g`** on a task = `start`. |
 | `create <title…> [-P project] [-p high\|medium\|low] [-t tag…]` | Creates a task in the central repo. Project defaults to the registered repo containing the current directory (subfolders and worktrees included). |
-| `start <id>` | Creates the worktree, opens a Herdr workspace, starts agent `ordna-<id>`, sends the task. Refuses if the agent already exists. |
+| `start <id> [--plan\|--normal]` | Creates the worktree, opens a Herdr workspace, starts agent `ordna-<id>`, sends the task. Refuses if the agent already exists. Starts Claude in plan mode (`--permission-mode plan`) if the task has the tag `plan` or with `--plan`; `--normal` overrides the tag. `resume` keeps the mode. |
 | `resume <id>` | Live agent: focuses it (or delivers a still-pending prompt). Dead agent: reopens the worktree and runs `claude --resume <session>`. |
 | `stop <id>` | Sends Esc to the agent; task becomes `blocked`. Does not close panes or delete anything. |
 | `status [id]` | Task status plus the live Herdr agent state, branch, commit, PR, last result. |
@@ -265,6 +265,7 @@ Not verified:
 ## Known limitations
 
 - Ordna's agent hook is HTTP-only and manual (`g`); Ordna does not emit events when a status changes, so live states are reconciled with `sync`.
+- Ordna has a single agent hook (one key, `g`), so there is no separate "plan" key: the mode is a property of the task. Add or remove the tag `plan` in the Ordna UI to choose per task.
 - The listener exists only while `ordna-herdr board` is open. The TUI toast only shows "Sent" or "hook failed"; the real error is written to the task (`blocked` + `## Progress`).
 - Herdr state `unknown` cannot be classified. `resume` sets `in-progress` even if the restored session is just waiting for your next prompt.
 - The prompt sent to the agent is fixed text in `buildPrompt` (`bin/ordna-herdr.mjs`); per-project additions go in `instructions`.

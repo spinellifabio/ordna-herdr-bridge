@@ -91,6 +91,9 @@ function lock(id) {
 const headOf = (dir, ref = "HEAD") => { const r = git(dir, "rev-parse", "--short", ref); return r.status === 0 ? r.stdout.trim() : null; };
 
 const PROMPT_MARKER = "has been assigned to you";
+// Plan mode: tag 'plan' on the task (editable in the Ordna UI) or --plan/--normal on 'start'. Stored as mode in the task frontmatter.
+const PLAN_TAG = "plan";
+const PLAN_ARGS = ["--permission-mode", "plan"];
 function buildPrompt(t, p, root) {
   const cli = `node "${join(ROOT, "bin", "ordna-herdr.mjs")}"`;
   // Task content only: no frontmatter, no Progress log.
@@ -100,6 +103,7 @@ function buildPrompt(t, p, root) {
     `Ordna task ${t.id} of project "${p.name}" ${PROMPT_MARKER}. Work ONLY in this directory (${root}).`,
     p.instructions && `Project instructions:\n${p.instructions}`,
     `--- TASK ---\n# ${t.id} ${t.title}\n\n${body}\n--- END TASK ---`,
+    t.extra_frontmatter?.mode === "plan" && `Plan mode: do not edit files. Present a plan and wait for the user's approval before implementing.`,
     `Rules: no push, merge or deletion; do not touch other repositories; no credentials in files or logs. Commit only on the current branch.`,
     `When you are done AND have verified your work, run:\n  ${cli} report ${t.id} review --note "<short summary>"`,
     `If you need information or are blocked, run:\n  ${cli} report ${t.id} blocked --note "<what you need>"`,
@@ -176,8 +180,9 @@ async function startAgent(name, p, pane, claudeArgs) {
 }
 
 // ---------- commands ----------
-async function cmdStart(id) {
+async function cmdStart(id, { plan } = {}) {
   const t = await loadTask(id);
+  plan ??= (t.tags ?? []).includes(PLAN_TAG);
   const p = taskProject(t);
   if (!isRepo(p.path)) fail(`repository missing or not a git repo: ${p.path}`);
   const name = agentName(id);
@@ -189,18 +194,18 @@ async function cmdStart(id) {
     let ws;
     try {
       ws = openWorkspace(p, t);
-      await startAgent(name, p, ws.pane, ["--session-id", session]);
+      await startAgent(name, p, ws.pane, ["--session-id", session, ...(plan ? PLAN_ARGS : [])]);
     } catch (e) {
       // Startup dialog (e.g. folder trust): the agent stays alive, the prompt is sent by 'resume' after manual approval.
       const waiting = ws && /blocked during startup/.test(e.message);
       const msg = waiting ? `agent waiting for input in pane ${ws.pane} (startup dialog): approve it, then run 'ordna-herdr resume ${id}'` : `start failed: ${e.message}`;
-      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, prompt_sent: false }) }, log: msg });
+      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, mode: plan ? "plan" : "normal", prompt_sent: false }) }, log: msg });
       throw new Error(msg);
     }
     await patch(id, {
       status: "in-progress", assignee: "claude",
-      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
-      log: `started in ${name} (workspace ${ws.workspace}, branch ${ws.branch})`,
+      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, mode: plan ? "plan" : "normal", commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
+      log: `started in ${name}${plan ? " (plan mode)" : ""} (workspace ${ws.workspace}, branch ${ws.branch})`,
     });
     await deliverPrompt(id, p, name, ws.path);
     console.log(`${id} -> ${name} (${ws.workspace}/${ws.pane}) branch ${ws.branch}`);
@@ -253,7 +258,7 @@ async function cmdResume(id) {
       if (!m.worktree || !existsSync(m.worktree)) fail(`task ${id}: worktree/pane no longer available (${m.worktree ?? "n/a"})`);
       ws = openWorkspace(p, t, { reopenPath: m.worktree });
     }
-    await startAgent(name, p, ws.pane, ["--resume", m.claude_session]);
+    await startAgent(name, p, ws.pane, ["--resume", m.claude_session, ...(m.mode === "plan" ? PLAN_ARGS : [])]);
     await patch(id, { status: "in-progress", meta: { herdr_workspace: ws.workspace, herdr_pane: ws.pane }, log: `resumed (claude session ${m.claude_session})` });
     console.log(`${id}: resumed in ${name}`);
   } finally { unlock(); }
@@ -381,7 +386,7 @@ async function cmdBoard() {
 const HELP = `ordna-herdr <command>
   board                         Ordna TUI; 'g' on a task hands it to Claude through Herdr
   create <title...> [-P project] [-p prio] [-t tag...]   create a task in the central repo (project from the current directory)
-  start <id>                    start the task
+  start <id> [--plan|--normal]  start the task (Claude plan mode if the task has tag 'plan', or with --plan)
   show <id>                     status + focus the Herdr session
   status [id]                   run status
   resume <id>                   resume an interrupted task
@@ -399,7 +404,11 @@ try {
   const arg = () => rest[0] ?? fail(`usage: ordna-herdr ${cmd} <id>`);
   switch (cmd) {
     case "board": await cmdBoard(); break;
-    case "start": await cmdStart(arg()); break;
+    case "start": {
+      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { plan: { type: "boolean" }, normal: { type: "boolean" } } });
+      if (values.plan && values.normal) fail("--plan and --normal are mutually exclusive");
+      await cmdStart(positionals[0] ?? fail("usage: ordna-herdr start <id> [--plan|--normal]"), { plan: values.plan ? true : values.normal ? false : undefined }); break;
+    }
     case "show": await cmdShow(arg()); break;
     case "status": await cmdStatus(rest[0]); break;
     case "resume": await cmdResume(arg()); break;
