@@ -141,7 +141,7 @@ function openWorkspace(p, t, { reopenPath } = {}) {
   const trust = p.trustRepository ? ["--trust-repository"] : [];
   const w = wslOf(p.path);
   if (w) { // WSL repo: Herdr would use git.exe (rejected). Create the worktree with WSL git, Herdr only opens the workspace.
-    let path = reopenPath, branch = `ordna/${t.id}`;
+    let path = reopenPath, branch = `${p.branchPrefix ?? "ordna/"}${t.id}`;
     if (!path) {
       if (p.isolation !== "worktree") fail("WSL repos support only isolation=worktree");
       const wt = `${w.linux.replace(/\/$/, "")}.worktrees/${t.id}`; // next to the repo, outside its tree
@@ -160,7 +160,7 @@ function openWorkspace(p, t, { reopenPath } = {}) {
     return { workspace: r.workspace.workspace_id, pane: sh.pane.pane_id, path: reopenPath, branch: r.worktree?.branch };
   }
   if (p.isolation === "worktree" && !reopenPath) {
-    const r = herdr("worktree", "create", "--cwd", p.path, "--branch", `ordna/${t.id}`, "--base", p.baseRef ?? "HEAD", "--label", label, "--no-focus", ...trust);
+    const r = herdr("worktree", "create", "--cwd", p.path, "--branch", `${p.branchPrefix ?? "ordna/"}${t.id}`, "--base", p.baseRef ?? "HEAD", "--label", label, "--no-focus", ...trust);
     return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
   }
   if (!reopenPath && git(p.path, "status", "--porcelain").stdout.trim())
@@ -325,15 +325,15 @@ function cmdProject(sub, rest) {
       console.log(`${id.padEnd(14)} ${isRepo(p.path) ? "ok     " : "MISSING"} ${p.isolation ?? "worktree"} ${p.agent ?? "claude"} ${p.path}`);
     return;
   }
-  if (sub !== "add") fail("usage: project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--trust-worktrees] | project list");
-  const { values, positionals: [id, path] } = parseArgs({ args: rest, allowPositionals: true, options: { name: { type: "string" }, isolation: { type: "string" }, instructions: { type: "string" }, "base-ref": { type: "string" }, "trust-worktrees": { type: "boolean" } } });
+  if (sub !== "add") fail("usage: project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees] | project list");
+  const { values, positionals: [id, path] } = parseArgs({ args: rest, allowPositionals: true, options: { name: { type: "string" }, isolation: { type: "string" }, instructions: { type: "string" }, "base-ref": { type: "string" }, "branch-prefix": { type: "string" }, "trust-worktrees": { type: "boolean" } } });
   if (!id || !path) fail("usage: project add <id> <path>");
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) fail("project id: letters, digits, - and _ only");
   const abs = resolve(path).replace(/\\/g, "/");
   if (!isRepo(abs)) fail(`${abs} is not a git repository`);
   if (reg.projects[id]) fail(`project '${id}' is already registered`);
   if (values.isolation && !["worktree", "none"].includes(values.isolation)) fail("isolation: worktree|none");
-  reg.projects[id] = { name: values.name ?? id, path: abs, agent: "claude", isolation: values.isolation ?? "worktree", ...(values.instructions && { instructions: values.instructions }), ...(values["base-ref"] && { baseRef: values["base-ref"] }), ...(values["trust-worktrees"] && { trustWorktrees: true }) };
+  reg.projects[id] = { name: values.name ?? id, path: abs, agent: "claude", isolation: values.isolation ?? "worktree", ...(values.instructions && { instructions: values.instructions }), ...(values["base-ref"] && { baseRef: values["base-ref"] }), ...(values["branch-prefix"] && { branchPrefix: values["branch-prefix"] }),...(values["trust-worktrees"] && { trustWorktrees: true }) };
   writeFileSync(REGISTRY, JSON.stringify(reg, null, 2) + "\n");
   console.log(`registered '${id}' -> ${abs}\nuse it with: ordna-herdr create "title" -P ${id}`);
 }
@@ -394,7 +394,7 @@ const HELP = `ordna-herdr <command>
   stop <id>                     interrupt the agent (esc)
   sync                          reconcile Ordna statuses with Herdr
   report <id> <review|blocked|in-progress> [--note T] [--pr URL]
-  project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--trust-worktrees]
+  project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees]
   project list
   gc                            remove orphaned WSL worktree entries from git safe.directory`;
 

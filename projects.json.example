@@ -6,7 +6,8 @@
       "path": "C:/Users/me/source/repos/myapp",
       "agent": "claude",
       "isolation": "worktree",
-      "baseRef": "main",
+      "baseRef": "develop",
+      "branchPrefix": "feature/",
       "instructions": "Text appended to the prompt of every task of this project.",
       "agentArgs": [],
       "trustRepository": false

@@ -48,7 +48,7 @@ Design rules:
 
 - **Native first.** The Ordna side uses its built-in agent hook (`ORDNA_AGENT_HOOK_URL`); the Herdr side uses only documented CLI commands. No database, no permanent service, no Docker, no npm dependencies.
 - **A task is never "done" because the agent went idle.** The agent reports `review` explicitly; `done` is always a human decision.
-- **No surprises in your repos.** Work happens in a dedicated worktree and branch (`ordna/T-001`). The bridge never pushes, merges or deletes, and refuses to run in a dirty repository when isolation is off.
+- **No surprises in your repos.** Work happens in a dedicated worktree and branch (`ordna/T-001` by default, see `branchPrefix`). The bridge never pushes, merges or deletes, and refuses to run in a dirty repository when isolation is off.
 
 ## Requirements
 
@@ -112,7 +112,7 @@ ordh status           # Ordna state + live Herdr state
 ordh show T-001       # same, and focuses the agent's Herdr session
 ```
 
-When Claude finishes and verifies the work it runs `report T-001 review --note "..."`. You review branch `ordna/T-001`, integrate it yourself, then:
+When Claude finishes and verifies the work it runs `report T-001 review --note "..."`. You review branch `ordna/T-001` (or `<branchPrefix>T-001`), integrate it yourself, then:
 
 ```powershell
 ordna move T-001 done      # from inside the task repository
@@ -182,14 +182,19 @@ Per run, the bridge stores this in the task frontmatter (Ordna preserves unknown
 | `path` | required | Local Git repository (forward slashes; `//wsl.localhost/<distro>/...` for WSL). |
 | `name` | id | Display name used in Herdr workspace labels. |
 | `agent` | `claude` | Herdr agent kind. Only Claude Code has been tested. |
-| `isolation` | `worktree` | `worktree`: a dedicated branch `ordna/<id>` in its own worktree. `none`: work in the repo itself, refused if it has local changes. |
+| `isolation` | `worktree` | `worktree`: a dedicated branch `<branchPrefix><id>` in its own worktree. `none`: work in the repo itself, refused if it has local changes. |
 | `baseRef` | `HEAD` | Ref the task branch starts from. |
+| `branchPrefix` | `ordna/` | Prefix of the task branch (`<prefix><id>`). Set `feature/` for Git Flow, see below. |
 | `instructions` | – | Extra text added to every task prompt. |
 | `agentArgs` | `[]` | Extra arguments passed to `claude`. |
 | `trustRepository` | `false` | Passes `--trust-repository` to Herdr worktree commands. Enable only for repos you verified. |
 | `trustWorktrees` | `false` | WSL only, see below. |
 
-`project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--trust-worktrees]` writes this file for you (and creates it if missing).
+`project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees]` writes this file for you (and creates it if missing).
+
+### Git Flow
+
+With `"baseRef": "develop"` and `"branchPrefix": "feature/"` each task runs on `feature/<id>`, branched from `develop`. When the review is done, `git flow feature finish <id>` merges it back (`--no-ff`) into `develop`. The bridge itself never merges, pushes or deletes.
 
 ## Using it from your project repos and from Claude
 
