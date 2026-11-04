@@ -94,6 +94,10 @@ const PROMPT_MARKER = "has been assigned to you";
 // Plan mode: tag 'plan' on the task (editable in the Ordna UI) or --plan/--normal on 'start'. Stored as mode in the task frontmatter.
 const PLAN_TAG = "plan";
 const PLAN_ARGS = ["--permission-mode", "plan"];
+// Model: first model tag wins (extra ones ignored); default opusplan (Opus plans, Sonnet implements) in plan mode, else sonnet.
+const MODEL_TAGS = ["opus", "sonnet", "haiku"];
+const modelFor = (t, plan) => (t.tags ?? []).find((x) => MODEL_TAGS.includes(x)) ?? (plan ? "opusplan" : "sonnet");
+const hasModelArg = (p) => p.agentArgs.some((a) => a === "--model" || a.startsWith("--model="));
 const INPLACE_TAG = "inplace"; // task runs directly in the repo: no worktree, no ordna/T-xxx branch
 function buildPrompt(t, p, root) {
   const cli = `node "${join(ROOT, "bin", "ordna-herdr.mjs")}"`;
@@ -191,6 +195,7 @@ async function cmdStart(id, { plan } = {}) {
   const t = await loadTask(id);
   plan ??= (t.tags ?? []).includes(PLAN_TAG);
   const p = (t.tags ?? []).includes(INPLACE_TAG) ? { ...taskProject(t), isolation: "none", inplace: true } : taskProject(t);
+  const model = hasModelArg(p) ? null : modelFor(t, plan); // a --model in the project's agentArgs wins: record no model, pass no flag
   if (!isRepo(p.path)) fail(`repository missing or not a git repo: ${p.path}`);
   const name = agentName(id);
   if (agentOf(name)) fail(`task ${id}: agent '${name}' is already running (use 'show' or 'resume')`);
@@ -201,18 +206,18 @@ async function cmdStart(id, { plan } = {}) {
     let ws;
     try {
       ws = openWorkspace(p, t);
-      await startAgent(name, p, ws.pane, ["--session-id", session, ...(plan ? PLAN_ARGS : [])]);
+      await startAgent(name, p, ws.pane, ["--session-id", session, ...(model ? ["--model", model] : []), ...(plan ? PLAN_ARGS : [])]);
     } catch (e) {
       // Startup dialog (e.g. folder trust): the agent stays alive, the prompt is sent by 'resume' after manual approval.
       const waiting = ws && /blocked during startup/.test(e.message);
       const msg = waiting ? `agent waiting for input in pane ${ws.pane} (startup dialog): approve it, then run 'ordna-herdr resume ${id}'` : `start failed: ${e.message}`;
-      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, mode: plan ? "plan" : "normal", prompt_sent: false }) }, log: msg });
+      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, mode: plan ? "plan" : "normal", model, prompt_sent: false }) }, log: msg });
       throw new Error(msg);
     }
     await patch(id, {
       status: "in-progress", assignee: "claude",
-      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, mode: plan ? "plan" : "normal", commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
-      log: `started in ${name}${plan ? " (plan mode)" : ""} (workspace ${ws.workspace}, branch ${ws.branch})`,
+      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, mode: plan ? "plan" : "normal", model, commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
+      log: `started in ${name}${plan ? " (plan mode)" : ""}${model ? ` [${model}]` : ""} (workspace ${ws.workspace}, branch ${ws.branch})`,
     });
     await deliverPrompt(id, p, name, ws.path);
     console.log(`${id} -> ${name} (${ws.workspace}/${ws.pane}) branch ${ws.branch}`);
@@ -265,7 +270,7 @@ async function cmdResume(id) {
       if (!m.worktree || !existsSync(m.worktree)) fail(`task ${id}: worktree/pane no longer available (${m.worktree ?? "n/a"})`);
       ws = openWorkspace(p, t, { reopenPath: m.worktree });
     }
-    await startAgent(name, p, ws.pane, ["--resume", m.claude_session, ...(m.mode === "plan" ? PLAN_ARGS : [])]);
+    await startAgent(name, p, ws.pane, ["--resume", m.claude_session, ...(m.model && !hasModelArg(p) ? ["--model", m.model] : []), ...(m.mode === "plan" ? PLAN_ARGS : [])]);
     await patch(id, { status: "in-progress", meta: { herdr_workspace: ws.workspace, herdr_pane: ws.pane }, log: `resumed (claude session ${m.claude_session})` });
     console.log(`${id}: resumed in ${name}`);
   } finally { unlock(); }
@@ -394,7 +399,7 @@ async function cmdBoard() {
 const HELP = `ordna-herdr <command>
   board                         Ordna TUI; 'g' on a task hands it to Claude through Herdr
   create <title...> [-P project] [-p prio] [-t tag...]   create a task in the central repo (project from the current directory)
-  start <id> [--plan|--normal]  start the task (Claude plan mode if the task has tag 'plan', or with --plan; tag 'inplace' = no worktree, run in the repo)
+  start <id> [--plan|--normal]  start the task (Claude plan mode if the task has tag 'plan', or with --plan; tag 'inplace' = no worktree, run in the repo; tag opus|sonnet|haiku picks the model, default opusplan with plan, else sonnet)
   show <id>                     status + focus the Herdr session
   status [id]                   run status
   resume <id>                   resume an interrupted task
