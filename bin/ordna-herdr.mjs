@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Bridge Ordna -> Herdr -> Claude Code. No external dependencies.
 import { spawnSync, spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer } from "node:http";
 import { randomUUID, randomBytes } from "node:crypto";
 import { join, dirname, resolve } from "node:path";
@@ -376,7 +376,8 @@ async function cmdBoard() {
       try {
         const id = JSON.parse(body)?.task?.id ?? fail("missing task");
         res.writeHead(202).end("accepted");
-        cmdStart(id).catch(() => { /* error already recorded in the task (blocked) */ });
+        cmdStart(id).catch((e) => appendFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "board-errors.log"), `${new Date().toISOString()} ${id}: ${e.message}
+`)); // TUI owns the screen: failures that never reach the task (unknown project, already running) go to a log
       } catch (e) { res.writeHead(400).end(String(e.message)); }
     });
   });

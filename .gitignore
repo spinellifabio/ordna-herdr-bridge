@@ -7,3 +7,4 @@ node_modules/
 /AGENTS.md
 /tasks/*
 !/tasks/.gitkeep
+/board-errors.log
