@@ -10,7 +10,8 @@
       "branchPrefix": "feature/",
       "instructions": "Text appended to the prompt of every task of this project.",
       "agentArgs": [],
-      "trustRepository": false
+      "trustRepository": false,
+      "profile": "work"
     },
     "myapp-wsl": {
       "name": "Repository inside WSL",

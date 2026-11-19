@@ -189,8 +189,9 @@ Per run, the bridge stores this in the task frontmatter (Ordna preserves unknown
 | `agentArgs` | `[]` | Extra arguments passed to `claude`. |
 | `trustRepository` | `false` | Passes `--trust-repository` to Herdr worktree commands. Enable only for repos you verified. |
 | `trustWorktrees` | `false` | WSL only, see below. |
+| `profile` | none | Claude Code profile for the task: `personal` (`~/.claude`) or `<name>` (`~/.claude-<name>`, e.g. `work`). Sets `CLAUDE_PROFILE` in the pane; needs `~/.claude/profiles/claude-profile.*` in the shell rc. Unset: the shell picks from the cwd. Recorded in the task and reused by `resume`. |
 
-`project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees]` writes this file for you (and creates it if missing).
+`project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees] [--profile P]` writes this file for you (and creates it if missing).
 
 ### Git Flow
 

@@ -98,6 +98,12 @@ const PLAN_ARGS = ["--permission-mode", "plan"];
 const MODEL_TAGS = ["opus", "sonnet", "haiku"];
 const modelFor = (t, plan) => (t.tags ?? []).find((x) => MODEL_TAGS.includes(x)) ?? (plan ? "opusplan" : "sonnet");
 const hasModelArg = (p) => p.agentArgs.some((a) => a === "--model" || a.startsWith("--model="));
+// Claude profile (project field "profile"): env for the pane; the shell function claude-profile.* honours CLAUDE_PROFILE over its cwd rule.
+const profileEnv = (profile) => {
+  if (!profile) return [];
+  if (!/^[a-z0-9_-]+$/i.test(profile)) fail(`invalid profile '${profile}' (letters, digits, - and _)`);
+  return ["--env", `CLAUDE_PROFILE=${profile}`];
+};
 const INPLACE_TAG = "inplace"; // task runs directly in the repo: no worktree, no ordna/T-xxx branch
 function buildPrompt(t, p, root) {
   const cli = `node "${join(ROOT, "bin", "ordna-herdr.mjs")}"`;
@@ -145,6 +151,7 @@ const dirtyMsg =(p) => `${p.path} has uncommitted changes and this task runs in 
 function openWorkspace(p, t, { reopenPath } = {}) {
   const label = `${t.id} ${p.name}`;
   const trust = p.trustRepository ? ["--trust-repository"] : [];
+  const env = profileEnv(p.profile);
   const w = wslOf(p.path);
   if (w) { // WSL repo: Herdr would use git.exe (rejected). Create the worktree with WSL git, Herdr only opens the workspace.
     let path = reopenPath, branch = `${p.branchPrefix ?? "ordna/"}${t.id}`;
@@ -160,22 +167,28 @@ function openWorkspace(p, t, { reopenPath } = {}) {
       path = `//wsl.localhost/${w.distro}${wt}`;
     } else branch = git(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() || branch;
     trustWorktree(p, path);
-    const r = herdr("workspace", "create", "--cwd", path, "--label", label, "--no-focus");
+    const r = herdr("workspace", "create", "--cwd", path, "--label", label, "--no-focus", ...env);
     return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path, branch };
   }
   if (reopenPath && reopenPath !== p.path) { // reopenPath === p.path: in-place run, plain workspace below
     // With Herdr layouts the root pane of a reopened workspace may not be a shell: split a new one.
     const r = herdr("worktree", "open", "--cwd", p.path, "--path", reopenPath, "--label", label, "--no-focus", ...trust);
-    const sh = herdr("pane", "split", r.root_pane.pane_id, "--direction", "down", "--cwd", reopenPath, "--no-focus");
+    const sh = herdr("pane", "split", r.root_pane.pane_id, "--direction", "down", "--cwd", reopenPath, "--no-focus", ...env);
     return { workspace: r.workspace.workspace_id, pane: sh.pane.pane_id, path: reopenPath, branch: r.worktree?.branch };
   }
   if (p.isolation === "worktree" && !reopenPath) {
     const r = herdr("worktree", "create", "--cwd", p.path, "--branch", `${p.branchPrefix ?? "ordna/"}${t.id}`, "--base", p.baseRef ?? "HEAD", "--label", label, "--no-focus", ...trust);
-    return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
+    if (!env.length) return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
+    // worktree create has no --env: open the agent in a new pane that has it, then drop the env-less root pane.
+    let sh;
+    try { sh = herdr("pane", "split", r.root_pane.pane_id, "--direction", "down", "--cwd", r.worktree.path, "--no-focus", ...env); }
+    catch (e) { throw new Error(`${e.message} (worktree ${r.worktree.path}, branch ${r.worktree.branch} already created: remove them before retrying)`); }
+    herdrTry("pane", "close", r.root_pane.pane_id);
+    return { workspace: r.workspace.workspace_id, pane: sh.pane.pane_id, path: r.worktree.path, branch: r.worktree.branch };
   }
   if (!reopenPath && git(p.path, "status", "--porcelain").stdout.trim())
     fail(dirtyMsg(p));
-  const r = herdr("workspace", "create", "--cwd", p.path, "--label", label, "--no-focus");
+  const r = herdr("workspace", "create", "--cwd", p.path, "--label", label, "--no-focus", ...env);
   return { workspace: r.workspace.workspace_id, pane: r.root_pane.pane_id, path: p.path, branch: git(p.path, "rev-parse", "--abbrev-ref", "HEAD").stdout.trim() };
 }
 
@@ -211,13 +224,13 @@ async function cmdStart(id, { plan } = {}) {
       // Startup dialog (e.g. folder trust): the agent stays alive, the prompt is sent by 'resume' after manual approval.
       const waiting = ws && /blocked during startup/.test(e.message);
       const msg = waiting ? `agent waiting for input in pane ${ws.pane} (startup dialog): approve it, then run 'ordna-herdr resume ${id}'` : `start failed: ${e.message}`;
-      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, mode: plan ? "plan" : "normal", model, prompt_sent: false }) }, log: msg });
+      await patch(id, { status: "blocked", meta: { project: p.id, result: msg, ...(ws && { herdr_workspace: ws.workspace, herdr_pane: ws.pane, worktree: ws.path, branch: ws.branch }), ...(waiting && { herdr_agent: name, claude_session: session, mode: plan ? "plan" : "normal", model, profile: p.profile ?? null, prompt_sent: false }) }, log: msg });
       throw new Error(msg);
     }
     await patch(id, {
       status: "in-progress", assignee: "claude",
-      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, mode: plan ? "plan" : "normal", model, commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
-      log: `started in ${name}${plan ? " (plan mode)" : ""}${model ? ` [${model}]` : ""} (workspace ${ws.workspace}, branch ${ws.branch})`,
+      meta: { project: p.id, herdr_agent: name, herdr_workspace: ws.workspace, herdr_pane: ws.pane, branch: ws.branch, worktree: ws.path, claude_session: session, mode: plan ? "plan" : "normal", model, profile: p.profile ?? null, commit: headOf(ws.path), run_started_at: new Date().toISOString(), result: null, prompt_sent: false },
+      log: `started in ${name}${plan ? " (plan mode)" : ""}${model ? ` [${model}]` : ""}${p.profile ? ` {profile ${p.profile}}` : ""} (workspace ${ws.workspace}, branch ${ws.branch})`,
     });
     await deliverPrompt(id, p, name, ws.path);
     console.log(`${id} -> ${name} (${ws.workspace}/${ws.pane}) branch ${ws.branch}`);
@@ -262,7 +275,7 @@ async function cmdResume(id) {
     return console.log(`${id}: prompt delivered to ${name}`);
   }
   if (live) { herdr("agent", "focus", name); return console.log(`${id}: agent already running (${live.agent_status}), focused ${name}`); }
-  const p = taskProject(t);
+  const p = { ...taskProject(t), ...("profile" in m && { profile: m.profile ?? undefined }) }; // the Claude session lives in the profile it started with
   const unlock = lock(id);
   try {
     let ws = { workspace: m.herdr_workspace, pane: m.herdr_pane && herdrTry("pane", "get", m.herdr_pane) ? m.herdr_pane : null };
@@ -333,18 +346,19 @@ function cmdProject(sub, rest) {
   const reg = loadRegistry(); reg.projects ??= {};
   if (sub === "list") {
     for (const [id, p] of Object.entries(reg.projects))
-      console.log(`${id.padEnd(14)} ${isRepo(p.path) ? "ok     " : "MISSING"} ${p.isolation ?? "worktree"} ${p.agent ?? "claude"} ${p.path}`);
+      console.log(`${id.padEnd(14)} ${isRepo(p.path) ? "ok     " : "MISSING"} ${p.isolation ?? "worktree"} ${p.agent ?? "claude"} ${(p.profile ?? "-").padEnd(8)} ${p.path}`);
     return;
   }
-  if (sub !== "add") fail("usage: project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees] | project list");
-  const { values, positionals: [id, path] } = parseArgs({ args: rest, allowPositionals: true, options: { name: { type: "string" }, isolation: { type: "string" }, instructions: { type: "string" }, "base-ref": { type: "string" }, "branch-prefix": { type: "string" }, "trust-worktrees": { type: "boolean" } } });
+  if (sub !== "add") fail("usage: project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees] [--profile P] | project list");
+  const { values, positionals: [id, path] } = parseArgs({ args: rest, allowPositionals: true, options: { name: { type: "string" }, isolation: { type: "string" }, instructions: { type: "string" }, "base-ref": { type: "string" }, "branch-prefix": { type: "string" }, "trust-worktrees": { type: "boolean" }, profile: { type: "string" } } });
   if (!id || !path) fail("usage: project add <id> <path>");
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) fail("project id: letters, digits, - and _ only");
   const abs = resolve(path).replace(/\\/g, "/");
   if (!isRepo(abs)) fail(`${abs} is not a git repository`);
   if (reg.projects[id]) fail(`project '${id}' is already registered`);
   if (values.isolation && !["worktree", "none"].includes(values.isolation)) fail("isolation: worktree|none");
-  reg.projects[id] = { name: values.name ?? id, path: abs, agent: "claude", isolation: values.isolation ?? "worktree", ...(values.instructions && { instructions: values.instructions }), ...(values["base-ref"] && { baseRef: values["base-ref"] }), ...(values["branch-prefix"] && { branchPrefix: values["branch-prefix"] }),...(values["trust-worktrees"] && { trustWorktrees: true }) };
+  profileEnv(values.profile); // validates the name
+  reg.projects[id] = { name: values.name ?? id, path: abs, agent: "claude", isolation: values.isolation ?? "worktree", ...(values.instructions && { instructions: values.instructions }), ...(values["base-ref"] && { baseRef: values["base-ref"] }), ...(values["branch-prefix"] && { branchPrefix: values["branch-prefix"] }),...(values["trust-worktrees"] && { trustWorktrees: true }), ...(values.profile && { profile: values.profile }) };
   writeFileSync(REGISTRY, JSON.stringify(reg, null, 2) + "\n");
   console.log(`registered '${id}' -> ${abs}\nuse it with: ordna-herdr create "title" -P ${id}`);
 }
@@ -406,7 +420,7 @@ const HELP = `ordna-herdr <command>
   stop <id>                     interrupt the agent (esc)
   sync                          reconcile Ordna statuses with Herdr
   report <id> <review|blocked|in-progress> [--note T] [--pr URL]
-  project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees]
+  project add <id> <path> [--name N] [--isolation worktree|none] [--instructions T] [--base-ref R] [--branch-prefix P] [--trust-worktrees] [--profile P]
   project list
   gc                            remove orphaned WSL worktree entries from git safe.directory`;
 
