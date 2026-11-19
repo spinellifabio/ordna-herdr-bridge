@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unl
 import { createServer } from "node:http";
 import { randomUUID, randomBytes } from "node:crypto";
 import { join, dirname, resolve } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -102,7 +103,8 @@ const hasModelArg = (p) => p.agentArgs.some((a) => a === "--model" || a.startsWi
 const profileEnv = (profile) => {
   if (!profile) return [];
   if (!/^[a-z0-9_-]+$/i.test(profile)) fail(`invalid profile '${profile}' (letters, digits, - and _)`);
-  return ["--env", `CLAUDE_PROFILE=${profile}`];
+  // herdr launches claude as an executable, bypassing the shell function, so CLAUDE_CONFIG_DIR must be set here ('personal' = default ~/.claude).
+  return ["--env", `CLAUDE_PROFILE=${profile}`, ...(profile === "personal" ? [] : ["--env", `CLAUDE_CONFIG_DIR=${join(homedir(), `.claude-${profile}`)}`])];
 };
 const INPLACE_TAG = "inplace"; // task runs directly in the repo: no worktree, no ordna/T-xxx branch
 function buildPrompt(t, p, root) {
